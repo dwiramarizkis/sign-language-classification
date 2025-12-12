@@ -9,6 +9,10 @@ import numpy as np
 import mediapipe as mp
 import pickle
 from tensorflow import keras
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
+from collections import deque
+import threading
 
 # ============================================================================
 # PAGE CONFIG
@@ -116,7 +120,201 @@ def init_mediapipe():
     return hands, mp_hands, mp_drawing, mp_drawing_styles
 
 # ============================================================================
-# EXTRACT FEATURES FROM LANDMARKS
+# GLOBAL VARIABLES FOR REAL-TIME DETECTION
+# ============================================================================
+class VideoProcessor:
+    """Video processor untuk real-time detection"""
+    
+    def __init__(self):
+        self.hands = None
+        self.mp_hands = None
+        self.mp_drawing = None
+        self.mp_drawing_styles = None
+        self.model = None
+        self.label_encoder = None
+        self.confidence_threshold = 0.7
+        self.show_landmarks = True
+        self.show_confidence = True
+        self.prediction_history = deque(maxlen=5)
+        self.lock = threading.Lock()
+        self.current_prediction = ""
+        self.current_confidence = 0.0
+        
+    def initialize(self, model, label_encoder, confidence_threshold, show_landmarks, show_confidence):
+        """Initialize MediaPipe dan model"""
+        self.model = model
+        self.label_encoder = label_encoder
+        self.confidence_threshold = confidence_threshold
+        self.show_landmarks = show_landmarks
+        self.show_confidence = show_confidence
+        
+        # Initialize MediaPipe
+        self.mp_hands = mp.solutions.hands
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        
+        self.hands = self.mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.5,
+            model_complexity=1
+        )
+    
+    def recv(self, frame):
+        """Process setiap frame dari webcam"""
+        img = frame.to_ndarray(format="bgr24")
+        
+        # Flip horizontal
+        img = cv2.flip(img, 1)
+        
+        # Convert to RGB
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # Process dengan MediaPipe
+        results = self.hands.process(img_rgb)
+        
+        # Jika tangan terdeteksi
+        if results.multi_hand_landmarks:
+            hand_landmarks = results.multi_hand_landmarks[0]
+            
+            # Gambar landmarks
+            if self.show_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    img,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                    self.mp_drawing_styles.get_default_hand_connections_style()
+                )
+            
+            # Ekstrak features
+            features = self.extract_features(hand_landmarks)
+            
+            # Prediksi
+            predictions = self.model.predict(features, verbose=0)
+            predicted_class_idx = np.argmax(predictions[0])
+            confidence_score = predictions[0][predicted_class_idx]
+            predicted_label = self.label_encoder.inverse_transform([predicted_class_idx])[0]
+            
+            # Smoothing
+            if confidence_score > self.confidence_threshold:
+                self.prediction_history.append(predicted_label)
+            
+            # Majority voting
+            if len(self.prediction_history) > 0:
+                from collections import Counter
+                counter = Counter(self.prediction_history)
+                prediction_text = counter.most_common(1)[0][0]
+                
+                # Update current prediction
+                with self.lock:
+                    self.current_prediction = prediction_text
+                    self.current_confidence = confidence_score
+                
+                # Tampilkan di frame
+                if confidence_score > self.confidence_threshold:
+                    # Background box
+                    cv2.rectangle(img, (10, 10), (300, 100), (30, 144, 255), -1)
+                    cv2.rectangle(img, (10, 10), (300, 100), (0, 255, 0), 3)
+                    
+                    # Text
+                    cv2.putText(
+                        img,
+                        f"Huruf: {prediction_text.upper()}",
+                        (20, 55),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1.2,
+                        (255, 255, 255),
+                        3
+                    )
+                    
+                    if self.show_confidence:
+                        cv2.putText(
+                            img,
+                            f"Conf: {confidence_score*100:.1f}%",
+                            (20, 85),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6,
+                            (255, 255, 255),
+                            2
+                        )
+        else:
+            # Clear history
+            self.prediction_history.clear()
+            with self.lock:
+                self.current_prediction = ""
+                self.current_confidence = 0.0
+            
+            # Tampilkan pesan
+            cv2.putText(
+                img,
+                "Tidak ada tangan terdeteksi",
+                (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 0, 255),
+                2
+            )
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+    
+    def extract_features(self, hand_landmarks):
+        """Ekstrak 45 features dari hand landmarks"""
+        # Ekstrak koordinat x, y
+        x_coords = []
+        y_coords = []
+        
+        for landmark in hand_landmarks.landmark:
+            x_coords.append(landmark.x)
+            y_coords.append(landmark.y)
+        
+        # Normalisasi
+        min_x = min(x_coords)
+        min_y = min(y_coords)
+        
+        data_aux = []
+        
+        # 42 features: koordinat yang dinormalisasi
+        for i in range(len(hand_landmarks.landmark)):
+            x = hand_landmarks.landmark[i].x
+            y = hand_landmarks.landmark[i].y
+            data_aux.append(x - min_x)
+            data_aux.append(y - min_y)
+        
+        # 3 features tambahan
+        
+        # 1. Palm orientation
+        wrist = hand_landmarks.landmark[0]
+        middle_mcp = hand_landmarks.landmark[9]
+        palm_angle = np.arctan2(middle_mcp.y - wrist.y, 
+                               middle_mcp.x - wrist.x)
+        data_aux.append(palm_angle)
+        
+        # 2. Hand openness
+        thumb_tip = hand_landmarks.landmark[4]
+        pinky_tip = hand_landmarks.landmark[20]
+        openness = np.sqrt((thumb_tip.x - pinky_tip.x)**2 + 
+                          (thumb_tip.y - pinky_tip.y)**2)
+        data_aux.append(openness)
+        
+        # 3. Finger curl
+        palm_center_x = np.mean([hand_landmarks.landmark[i].x 
+                                for i in [0, 5, 9, 13, 17]])
+        palm_center_y = np.mean([hand_landmarks.landmark[i].y 
+                                for i in [0, 5, 9, 13, 17]])
+        fingertips = [4, 8, 12, 16, 20]
+        avg_curl = np.mean([
+            np.sqrt((hand_landmarks.landmark[i].x - palm_center_x)**2 + 
+                   (hand_landmarks.landmark[i].y - palm_center_y)**2)
+            for i in fingertips
+        ])
+        data_aux.append(avg_curl)
+        
+        return np.array(data_aux, dtype=np.float32).reshape(1, -1)
+
+# ============================================================================
+# EXTRACT FEATURES FROM LANDMARKS (untuk static image)
 # ============================================================================
 def extract_features(hand_landmarks):
     """Ekstrak 45 features dari hand landmarks"""
@@ -221,34 +419,95 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📖 Instruksi")
     st.sidebar.markdown("""
-    **Opsi 1: Gunakan Camera**
-    1. Pilih tab **Camera**
-    2. Klik tombol kamera
+    **Opsi 1: Real-Time (Recommended)**
+    1. Pilih tab **Real-Time**
+    2. Klik **START**
     3. Izinkan akses kamera
-    4. Posisikan gesture ASL
-    5. Ambil foto
+    4. Tunjukkan gesture ASL
+    5. Prediksi otomatis muncul
     
-    **Opsi 2: Upload File**
+    **Opsi 2: Camera Snapshot**
+    1. Pilih tab **Camera Snapshot**
+    2. Klik tombol kamera
+    3. Ambil foto gesture
+    
+    **Opsi 3: Upload File**
     1. Pilih tab **Upload File**
-    2. Klik **Browse files**
-    3. Pilih foto gesture ASL
-    4. Lihat hasil prediksi
+    2. Upload foto gesture ASL
     """)
     
     # Main content
     st.markdown("### 📸 Input Gambar")
     
-    # Tabs untuk camera dan upload
-    tab1, tab2 = st.tabs(["📷 Camera", "📁 Upload File"])
+    # Tabs untuk real-time, camera, dan upload
+    tab1, tab2, tab3 = st.tabs(["🎥 Real-Time", "📷 Camera Snapshot", "📁 Upload File"])
     
     camera_photo = None
     uploaded_file = None
     
     with tab1:
+        st.info("💡 **Real-Time Detection:** Prediksi otomatis tanpa perlu ambil foto. Tunjukkan gesture ASL Anda ke kamera.")
+        
+        # Initialize video processor
+        ctx = st.session_state.get("video_processor", None)
+        if ctx is None:
+            ctx = VideoProcessor()
+            ctx.initialize(model, label_encoder, confidence_threshold, show_landmarks, show_confidence)
+            st.session_state["video_processor"] = ctx
+        else:
+            # Update settings
+            ctx.confidence_threshold = confidence_threshold
+            ctx.show_landmarks = show_landmarks
+            ctx.show_confidence = show_confidence
+        
+        # WebRTC streamer
+        webrtc_ctx = webrtc_streamer(
+            key="asl-detection",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=RTCConfiguration(
+                {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+            ),
+            video_processor_factory=lambda: ctx,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,
+        )
+        
+        # Display prediction
+        col_rt1, col_rt2 = st.columns([2, 1])
+        
+        with col_rt2:
+            st.markdown("### 🎯 Prediksi Real-Time")
+            prediction_placeholder = st.empty()
+            
+            if webrtc_ctx.state.playing:
+                while webrtc_ctx.state.playing:
+                    with ctx.lock:
+                        pred = ctx.current_prediction
+                        conf = ctx.current_confidence
+                    
+                    if pred and conf > confidence_threshold:
+                        prediction_placeholder.markdown(f"""
+                            <div class="prediction-box">
+                                <div class="prediction-letter">{pred.upper()}</div>
+                                <div class="confidence-text">Confidence: {conf*100:.1f}%</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        prediction_placeholder.markdown("""
+                            <div class="prediction-box">
+                                <div class="prediction-letter">-</div>
+                                <div class="confidence-text">Menunggu deteksi...</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    import time
+                    time.sleep(0.1)
+    
+    with tab2:
         st.info("💡 **Cara Penggunaan:** Klik tombol kamera, izinkan akses, ambil foto gesture ASL Anda.")
         camera_photo = st.camera_input("Ambil foto tangan Anda")
     
-    with tab2:
+    with tab3:
         st.info("💡 **Cara Penggunaan:** Upload foto tangan dengan gesture ASL (format: JPG, JPEG, PNG).")
         uploaded_file = st.file_uploader("Upload foto tangan Anda", type=['jpg', 'jpeg', 'png'])
     
