@@ -3,6 +3,11 @@ ASL Sign Language Detection - Flask Web App
 Deploy to Railway
 """
 
+import os
+# Set environment variables before importing cv2
+os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '0'
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
 from flask import Flask, render_template, request, jsonify, Response
 import cv2
 import numpy as np
@@ -10,7 +15,6 @@ import mediapipe as mp
 import pickle
 from tensorflow import keras
 import base64
-import os
 
 app = Flask(__name__)
 

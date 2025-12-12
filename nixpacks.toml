@@ -1,5 +1,9 @@
 [phases.setup]
-aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
+aptPkgs = ["libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1", "ffmpeg"]
+
+[variables]
+OPENCV_IO_ENABLE_OPENEXR = "0"
+QT_QPA_PLATFORM = "offscreen"
 
 [start]
 cmd = "gunicorn flask_app:app --bind 0.0.0.0:$PORT"
