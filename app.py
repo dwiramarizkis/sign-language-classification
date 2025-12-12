@@ -262,6 +262,11 @@ def main():
             # Read image
             file_bytes = np.asarray(bytearray(input_image.read()), dtype=np.uint8)
             frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            
+            # Flip horizontal untuk mirror effect (hanya untuk camera input)
+            if camera_photo is not None:
+                frame = cv2.flip(frame, 1)
+            
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             # Deteksi tangan
