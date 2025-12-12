@@ -1,10 +1,8 @@
 [phases.setup]
-aptPkgs = ["libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1", "ffmpeg", "libgl1-mesa-glx", "mesa-utils"]
+aptPkgs = ["libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1", "ffmpeg", "libgl1", "mesa-utils"]
 
 [phases.install]
 cmds = [
-    "apt-get update",
-    "apt-get install -y libgl1 || true",
     "ln -sf /usr/lib/x86_64-linux-gnu/libGL.so.1 /usr/lib/libGL.so.1 || true"
 ]
 
