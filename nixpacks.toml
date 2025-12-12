@@ -1,9 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
 aptPkgs = ["libgl1", "libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1"]
-
-[phases.install]
-cmds = ["python3.11 -m pip install --upgrade pip", "python3.11 -m pip install -r requirements.txt"]
 
 [start]
 cmd = "gunicorn flask_app:app --bind 0.0.0.0:$PORT"
