@@ -1,9 +1,17 @@
 [phases.setup]
-aptPkgs = ["libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1", "ffmpeg"]
+aptPkgs = ["libglib2.0-0", "libsm6", "libxext6", "libxrender1", "libgomp1", "ffmpeg", "libgl1-mesa-glx", "mesa-utils"]
+
+[phases.install]
+cmds = [
+    "apt-get update",
+    "apt-get install -y libgl1 || true",
+    "ln -sf /usr/lib/x86_64-linux-gnu/libGL.so.1 /usr/lib/libGL.so.1 || true"
+]
 
 [variables]
 OPENCV_IO_ENABLE_OPENEXR = "0"
 QT_QPA_PLATFORM = "offscreen"
+LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
 [start]
 cmd = "gunicorn flask_app:app --bind 0.0.0.0:$PORT"
