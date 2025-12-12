@@ -74,13 +74,28 @@ st.markdown("""
 @st.cache_resource
 def load_model_and_encoder():
     """Load model dan label encoder (cached)"""
+    import os
     try:
-        model = keras.models.load_model('asl_model.h5')
-        with open('label_encoder.pkl', 'rb') as f:
+        # Debug: Check current directory and files
+        current_dir = os.getcwd()
+        files_in_dir = os.listdir(current_dir)
+        
+        model_path = os.path.join(current_dir, 'asl_model.h5')
+        encoder_path = os.path.join(current_dir, 'label_encoder.pkl')
+        
+        # Check if files exist
+        if not os.path.exists(model_path):
+            return None, None, f"Model file not found. Current dir: {current_dir}, Files: {files_in_dir[:10]}"
+        
+        if not os.path.exists(encoder_path):
+            return None, None, f"Encoder file not found. Current dir: {current_dir}, Files: {files_in_dir[:10]}"
+        
+        model = keras.models.load_model(model_path)
+        with open(encoder_path, 'rb') as f:
             label_encoder = pickle.load(f)
         return model, label_encoder, None
     except Exception as e:
-        return None, None, str(e)
+        return None, None, f"Error: {str(e)}"
 
 # ============================================================================
 # INITIALIZE MEDIAPIPE
