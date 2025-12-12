@@ -1,7 +1,7 @@
-# Model files
-*.h5
-*.pkl
-*.pickle
+# Model files (commented out to allow deployment)
+# *.h5
+# *.pkl
+# *.pickle
 
 # Training outputs
 training_history.png
