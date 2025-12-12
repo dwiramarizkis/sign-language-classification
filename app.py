@@ -221,27 +221,46 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📖 Instruksi")
     st.sidebar.markdown("""
-    1. Klik tombol **kamera** di halaman utama
-    2. Izinkan akses kamera browser
-    3. Posisikan tangan dengan gesture ASL
-    4. Ambil foto
-    5. Lihat hasil prediksi
-    6. Ambil foto lagi untuk huruf lain
+    **Opsi 1: Gunakan Camera**
+    1. Pilih tab **Camera**
+    2. Klik tombol kamera
+    3. Izinkan akses kamera
+    4. Posisikan gesture ASL
+    5. Ambil foto
+    
+    **Opsi 2: Upload File**
+    1. Pilih tab **Upload File**
+    2. Klik **Browse files**
+    3. Pilih foto gesture ASL
+    4. Lihat hasil prediksi
     """)
     
     # Main content
-    st.markdown("### 📸 Camera Input")
-    st.info("💡 **Cara Penggunaan:** Ambil foto tangan Anda dengan gesture ASL, lalu sistem akan mendeteksi hurufnya.")
+    st.markdown("### 📸 Input Gambar")
     
-    # Camera input
-    camera_photo = st.camera_input("Ambil foto tangan Anda")
+    # Tabs untuk camera dan upload
+    tab1, tab2 = st.tabs(["📷 Camera", "📁 Upload File"])
+    
+    camera_photo = None
+    uploaded_file = None
+    
+    with tab1:
+        st.info("💡 **Cara Penggunaan:** Klik tombol kamera, izinkan akses, ambil foto gesture ASL Anda.")
+        camera_photo = st.camera_input("Ambil foto tangan Anda")
+    
+    with tab2:
+        st.info("💡 **Cara Penggunaan:** Upload foto tangan dengan gesture ASL (format: JPG, JPEG, PNG).")
+        uploaded_file = st.file_uploader("Upload foto tangan Anda", type=['jpg', 'jpeg', 'png'])
+    
+    # Gunakan input yang tersedia
+    input_image = camera_photo if camera_photo is not None else uploaded_file
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        if camera_photo is not None:
+        if input_image is not None:
             # Read image
-            file_bytes = np.asarray(bytearray(camera_photo.read()), dtype=np.uint8)
+            file_bytes = np.asarray(bytearray(input_image.read()), dtype=np.uint8)
             frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
@@ -327,7 +346,7 @@ def main():
             st.session_state.confidence_score = confidence_score
             st.session_state.hand_detected = hand_detected
         else:
-            st.info("📷 Klik tombol kamera di atas untuk mengambil foto")
+            st.info("📷 Gunakan tab **Camera** untuk mengambil foto atau tab **Upload File** untuk upload gambar")
             st.session_state.prediction_text = ""
             st.session_state.confidence_score = 0.0
             st.session_state.hand_detected = False
@@ -355,7 +374,7 @@ def main():
             st.markdown(f"""
                 <div class="stats-box">
                     <strong>Hand Detected:</strong> {'✅ Yes' if st.session_state.hand_detected else '❌ No'}<br>
-                    <strong>Status:</strong> {'✅ Ready' if camera_photo else '⏳ Waiting'}
+                    <strong>Status:</strong> {'✅ Ready' if input_image else '⏳ Waiting'}
                 </div>
             """, unsafe_allow_html=True)
 
